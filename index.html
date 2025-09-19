@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>抽籤器</title>
+<style>
+  body{margin:0;font:18px/1.6 system-ui; background:#0b1020; color:#e8eeff}
+  header{padding:20px;text-align:center}
+  header h1{margin:0;font-size:26px}
+  main{max-width:1000px;margin:0 auto;padding:16px}
+  .card{background:#101630;border-radius:12px;padding:16px;margin-bottom:16px}
+  select,input,button,textarea{padding:8px 12px;border-radius:8px;border:1px solid #555;background:#0d1430;color:#e8eeff}
+  button{cursor:pointer}
+  button.primary{background:#6ea8ff;border:none;color:#081532;font-weight:bold}
+  .grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+  .classBox{background:#0d1430;border:1px solid #333;border-radius:10px;padding:20px;text-align:center;min-height:100px;display:flex;flex-direction:column;justify-content:center;font-size:26px;transition:all .3s ease}
+  .highlight{animation:winFlash 1s ease forwards}
+  @keyframes winFlash{0%{transform:scale(1);color:#fff;text-shadow:none}40%{transform:scale(1.4);color:#ffd166;text-shadow:0 0 8px #ffd166,0 0 16px #fffbcc}70%{transform:scale(1.2);color:#fff;text-shadow:0 0 6px #6ea8ff,0 0 12px #6ea8ff}100%{transform:scale(1);color:#fff;text-shadow:none}}
+  table{width:100%;border-collapse:collapse;margin-top:12px}
+  th,td{padding:6px 8px;border-bottom:1px solid #444;text-align:left}
+  .btn-small{font-size:0.9em;padding:4px 8px;border-radius:6px;margin-left:4px;cursor:pointer}
+</style>
+</head>
+<body>
+<header>
+  <h1>🎯 抽籤器</h1>
+</header>
+<main>
+  <section class="card">
+    <h2>① 名單與設定</h2>
+    <div style="margin:10px 0">
+      <label>選擇年級：</label>
+      <select id="gradeSelect">
+        <option value="一年">一年級</option>
+        <option value="二年">二年級</option>
+        <option value="三年" selected>三年級</option>
+        <option value="四年">四年級</option>
+        <option value="五年">五年級</option>
+        <option value="六年">六年級</option>
+      </select>
+    </div>
+    <button class="primary" id="btnParse">重新匯入名單</button>
+    <textarea id="roster" style="width:100%;min-height:140px;margin-top:8px"></textarea>
+    <button id="btnDraw">開始抽籤</button>
+  </section>
+
+  <section class="card">
+    <h2>② 抽籤動畫（每班依序停下）</h2>
+    <div id="animationArea" class="grid"></div>
+    <div id="finalResult"></div>
+  </section>
+</main>
+
+<script>
+// --- 音效 ---
+let audioCtx=null;
+function ensureAudio(){ if(!audioCtx) audioCtx=new(window.AudioContext||window.webkitAudioContext)(); }
+function playTick(){ ensureAudio(); const ctx=audioCtx; const o=ctx.createOscillator(), g=ctx.createGain(); o.type='sine'; o.frequency.value=620; g.gain.value=0.04; o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime+0.04); }
+function playDing(){ ensureAudio(); const ctx=audioCtx; const o=ctx.createOscillator(), g=ctx.createGain(); o.type='triangle'; o.frequency.value=880; o.connect(g); g.connect(ctx.destination); g.gain.setValueAtTime(0.18,ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.9); o.start(); o.stop(ctx.currentTime+0.9); }
+
+// --- 內建名單（三～六年級），一年級與二年級預設為空 ---
+const defaultRoster = `三年忠班,1,呂彥澄
+三年忠班,2,蔡金河
+三年忠班,3,蔡沅佐
+三年忠班,4,劉宇昕
+三年忠班,5,侯佾承
+三年忠班,6,蔡承翰
+三年忠班,7,鐘柏崴
+三年忠班,8,賴邵邡
+三年忠班,9,侯鈞程
+三年忠班,10,林廣曜
+三年忠班,11,蔡少瑋
+三年忠班,12,林歆喬
+三年忠班,13,賴映儒
+三年忠班,14,陳語旋
+三年忠班,15,鄭琳縈
+三年忠班,16,楊婕妤
+三年忠班,17,涂娠瑄
+三年忠班,18,施子瑜
+三年忠班,19,蘇盈甄
+三年孝班,1,蔡旻宇
+三年孝班,2,陳佑佑
+三年孝班,3,侯凱森
+三年孝班,4,廖冠赫
+三年孝班,5,呂承翰
+三年孝班,6,蔡濬叡
+三年孝班,7,楊諺霖
+三年孝班,8,黃麒宏
+三年孝班,9,官甫沅
+三年孝班,10,陳椲捷
+三年孝班,11,蔡秉綸
+三年孝班,12,官芃忻
+三年孝班,13,蔡諝倫
+三年孝班,14,徐以璐
+三年孝班,15,許孟瑄
+三年孝班,16,官雨萱
+三年孝班,17,王雨婕
+三年仁班,1,郭信辰
+三年仁班,2,沈冠霖
+三年仁班,3,石翊辰
+三年仁班,4,黃子健
+三年仁班,5,呂柏樂
+三年仁班,6,黃彥碩
+三年仁班,7,傅椲恩
+三年仁班,8,吳承鋙
+三年仁班,9,吳承均
+三年仁班,10,張文欽
+三年仁班,11,石承運
+三年仁班,12,劉子寧
+三年仁班,13,黃一葦
+三年仁班,14,陳倚靖
+三年仁班,15,賴家糛
+三年仁班,16,呂妤晨
+三年仁班,17,侯喬馨
+三年仁班,18,林妍蓁
+三年仁班,19,許文菱
+四年忠班,1,蔡宇暢
+四年忠班,2,張允杰
+四年忠班,3,李崇銘
+四年忠班,4,賴承翰
+四年忠班,5,梁允睿
+四年忠班,6,涂家銘
+四年忠班,7,柯汯琍
+四年忠班,8,蔡侑宸
+四年忠班,9,林恩丞
+四年忠班,10,馬翊愷
+四年忠班,11,張筑鈞
+四年忠班,12,黃子芳
+四年忠班,13,陳芓伃
+四年忠班,14,黃榆媃
+四年忠班,15,傅紫晴
+四年忠班,16,洪千涵
+四年忠班,17,黃苡蕎
+四年忠班,18,蔡容璇
+四年忠班,19,張紜瑄
+四年忠班,20,鄭恩佳
+四年忠班,21,蔡欣宸
+四年忠班,22,葉瑀琋
+四年孝班,1,呂宥義
+四年孝班,2,林羽翔
+四年孝班,3,馬偉珉
+四年孝班,4,張宏源
+四年孝班,5,蔡政叡
+四年孝班,6,李紘舟
+四年孝班,7,黃泰逸
+四年孝班,8,何柏諒
+四年孝班,9,鄭兆凱
+四年孝班,10,莊子賢
+四年孝班,11,雷依勍
+四年孝班,12,侯芝芸
+四年孝班,13,侯旨芮
+四年孝班,14,涂娠蒨
+四年孝班,15,許庭綺
+四年孝班,16,顏辰芳
+四年孝班,17,黃佳柔
+四年孝班,18,戴妍昕
+四年孝班,19,羅子依
+四年孝班,20,蔡宜辰
+四年仁班,1,陳書稷
+四年仁班,2,陳啟峯
+四年仁班,3,劉耘典
+四年仁班,4,陳人華
+四年仁班,5,鄭亦恩
+四年仁班,6,許晨恩
+四年仁班,7,王博彥
+四年仁班,8,馬嘉佑
+四年仁班,9,黃忠陞
+四年仁班,10,吳祐錦
+四年仁班,11,王又加
+四年仁班,12,陳樂
+四年仁班,13,吳芸橙
+四年仁班,14,吳芸蓁
+四年仁班,15,林采樂
+四年仁班,16,張昱臻
+四年仁班,17,張云馨
+四年仁班,18,蔡語喬
+四年仁班,19,洪若珈
+四年仁班,20,官霈沄
+四年仁班,21,侯怡琁
+四年仁班,22,王仲卉
+五年忠班,1,楊仁杰
+五年忠班,2,郭冠廷
+五年忠班,3,陳和逸
+五年忠班,4,吳奕泰
+五年忠班,5,王茂畯
+五年忠班,6,温宇城
+五年忠班,7,林琨捷
+五年忠班,8,傅于軒
+五年忠班,9,陳元麒
+五年忠班,10,馬盈安
+五年忠班,11,呂昀甄
+五年忠班,12,李妍質
+五年忠班,13,林芯羽
+五年忠班,14,沈庭妤
+五年忠班,15,蔡季庭
+五年忠班,16,沈芝儀
+五年忠班,17,馬苹琁
+五年忠班,18,張芯慈
+五年忠班,19,吳苡蓁
+五年孝班,1,呂起杭
+五年孝班,2,侯宇宸
+五年孝班,3,蘇彥宸
+五年孝班,4,李育峰
+五年孝班,5,侯威丞
+五年孝班,6,李明儒
+五年孝班,7,徐柏榆
+五年孝班,8,賴譽仁
+五年孝班,9,林彥佑
+五年孝班,10,許芯嫙
+五年孝班,11,黃子恩
+五年孝班,12,吳緯琳
+五年孝班,13,黃子宸
+五年孝班,14,蔡楹姍
+五年孝班,15,雷小葆
+五年孝班,16,李辰晞
+五年孝班,17,陳倚帆
+五年孝班,18,陳依姍
+五年仁班,1,王健倫
+五年仁班,2,黃冠棠
+五年仁班,3,錢宣邑
+五年仁班,4,郭向宸
+五年仁班,5,黃冠霖
+五年仁班,6,龔逸凱
+五年仁班,7,蔡少朋
+五年仁班,8,呂東澤
+五年仁班,9,賴俊瑋
+五年仁班,10,呂忻倪
+五年仁班,11,陳宥臻
+五年仁班,12,劉芯沅
+五年仁班,13,蔡云馨
+五年仁班,14,翁若云
+五年仁班,15,陳巧芳
+五年仁班,16,蕭梓喬
+五年仁班,17,呂喬媗
+五年仁班,18,林苡茜
+六年忠班,1,蔡岳庭
+六年忠班,2,黃琚祐
+六年忠班,3,陳柏豪
+六年忠班,4,吳奕震
+六年忠班,5,葉丞祐
+六年忠班,6,陳建綸
+六年忠班,7,黃傳薪
+六年忠班,8,蔡嘉龍
+六年忠班,9,王瑀澤
+六年忠班,10,馬伯勳
+六年忠班,11,陳韋呈
+六年忠班,12,向唄樂
+六年忠班,13,吳昀靜
+六年忠班,14,蔡雨恩
+六年忠班,15,魏綾圻
+六年忠班,16,官宜蓁
+六年忠班,17,鄭竹晽
+六年忠班,18,張芊鈺
+六年忠班,19,黃梓榕
+六年忠班,20,李依宸
+六年忠班,21,王苡恩
+六年忠班,22,蔡宛蓁
+六年忠班,23,張芃緗
+六年孝班,1,陳柏維
+六年孝班,2,林冠廷
+六年孝班,3,雷振宇
+六年孝班,4,蔡承諭
+六年孝班,5,呂威霆
+六年孝班,6,盧彥璋
+六年孝班,7,張誠恩
+六年孝班,8,蘇郁智
+六年孝班,9,官臨恩
+六年孝班,10,何梓伊
+六年孝班,11,馬翊瑞
+六年孝班,12,官采柔
+六年孝班,13,陳韋茹
+六年孝班,14,陳恩嘉
+六年孝班,15,呂忻諭
+六年孝班,16,廖文妤
+六年孝班,17,施忻妤
+六年孝班,18,李采衣
+六年孝班,19,劉宜婷
+六年孝班,20,鐘亭汶
+六年孝班,21,黃沛芯
+六年孝班,22,蔡依叡
+六年孝班,23,王妡伃
+六年仁班,1,楊承諺
+六年仁班,2,李昌霖
+六年仁班,3,王仲宇
+六年仁班,4,張宸瑋
+六年仁班,5,陳宥廷
+六年仁班,6,張恩承
+六年仁班,7,蘇裕荃
+六年仁班,8,侯柏辰
+六年仁班,9,蔡明哲
+六年仁班,10,林士涵
+六年仁班,11,王晨覟
+六年仁班,12,陳妍甯
+六年仁班,13,許芷瑄
+六年仁班,14,許彩芯
+六年仁班,15,張珉瑄
+六年仁班,16,林琬頤
+六年仁班,17,陳毓潔
+六年仁班,18,蔡宜琇
+六年仁班,19,官可馨
+六年仁班,20,蔡佳諼
+六年仁班,21,黃琬琇
+六年仁班,22,蕭敏安
+六年仁班,23,黃珮婷`;
+
+// --- 狀態與工具 ---
+const state={classes:{}, drawn:{}};
+function parseRoster(text){
+  const data={};
+  const lines=text.split(/\n+/).map(s=>s.trim()).filter(Boolean);
+  for(const line of lines){
+    const parts=line.split(/,|\t|\s+/).map(s=>s.trim()).filter(Boolean);
+    if(parts.length<3) continue;
+    const [klass, seatStr, ...nameParts]=parts;
+    const seat=Number(seatStr.replace(/[^0-9]/g,''))||'';
+    const name=nameParts.join('');
+    if(!data[klass]) data[klass]=[];
+    data[klass].push({seat,name});
+  }
+  for(const k in data) data[k].sort((a,b)=>(a.seat||0)-(b.seat||0));
+  return data;
+}
+
+function pickCandidate(arr, drawnList){
+  const candidates=arr.filter(s=>!drawnList.includes(s.name));
+  if(candidates.length===0) return null;
+  return candidates[Math.floor(Math.random()*candidates.length)];
+}
+
+// --- 動畫 ---
+function animateDraw(klass, box, done){
+  const arr=state.classes[klass]||[];
+  if(arr.length===0) { box.textContent=klass+'：無名單'; return; }
+  if(!state.drawn[klass]) state.drawn[klass]=[];
+
+  let finalStu = pickCandidate(arr, state.drawn[klass]);
+  if(!finalStu) { state.drawn[klass]=[]; finalStu = pickCandidate(arr, state.drawn[klass]); }
+  state.drawn[klass].push(finalStu.name);
+
+  let i=0, ticks=0;
+  const total = Math.max(arr.length, Math.floor(arr.length*1.2));
+  const it = setInterval(()=>{
+    box.textContent = `${klass}: ${arr[i%arr.length].name}`;
+    if(ticks%2===0) playTick();
+    i++; ticks++;
+    if(ticks>total) {
+      clearInterval(it);
+      setTimeout(()=>{
+        box.textContent=`${klass}: ${finalStu.name}`;
+        box.classList.remove('highlight'); void box.offsetWidth; box.classList.add('highlight');
+        playDing();
+        done && done(finalStu);
+      }, 60);
+    }
+  }, 80);
+}
+
+function drawForGrade(grade){
+  const classes = Object.keys(state.classes).filter(k=>k.startsWith(grade));
+  const container=document.getElementById('animationArea');
+  container.innerHTML='';
+  const results=[];
+  classes.forEach(c=>{
+    const div=document.createElement('div');
+    div.className='classBox';
+    div.textContent=c;
+    container.appendChild(div);
+    animateDraw(c,div,(stu)=>{
+      results.push({klass:c, seat:stu.seat, name:stu.name});
+      if(results.length===classes.length) renderFinal(results);
+    });
+  });
+}
+
+function redrawSingle(klass){
+  const boxes=[...document.querySelectorAll('.classBox')];
+  const box=boxes.find(b=>b.textContent.startsWith(klass)) || null;
+  if(!box) return;
+  animateDraw(klass, box, (stu)=>{
+    const table=document.querySelector('#finalResult table');
+    if(table){
+      [...table.querySelectorAll('tbody tr')].forEach(r=>{
+        if(r.cells[0].textContent===klass){
+          r.cells[1].textContent = stu.seat;
+          r.cells[2].textContent = stu.name;
+        }
+      });
+    }
+  });
+}
+
+function renderFinal(results){
+  results.sort((a,b)=>a.klass.localeCompare(b.klass,'zh-Hant'));
+  const div=document.getElementById('finalResult');
+  let html='<h3>🎉 最終結果</h3>';
+  html+='<table><thead><tr><th>班級</th><th>座號</th><th>姓名</th><th>操作</th></tr></thead><tbody>';
+  results.forEach(r=>{ html+=`<tr><td>${r.klass}</td><td>${r.seat}</td><td>${r.name}</td><td><button class="btn-small" onclick="redrawSingle('${r.klass}')">🔁 重抽</button></td></tr>`; });
+  html+='</tbody></table>';
+  div.innerHTML=html;
+}
+
+// --- 匯入與初始化 ---
+document.getElementById('btnParse').addEventListener('click',()=>{
+  const text=document.getElementById('roster').value.trim();
+  if(!text) return alert('請先把名單貼到文字框，再按「重新匯入名單」。');
+  state.classes=parseRoster(text);
+  state.drawn={};
+  alert('名單已匯入！');
+});
+document.getElementById('btnDraw').addEventListener('click',()=>{
+  document.querySelectorAll('.classBox').forEach(n=>n.classList.remove('highlight'));
+  const grade=document.getElementById('gradeSelect').value;
+  drawForGrade(grade);
+});
+
+// 預設載入內建名單
+document.getElementById('roster').value = defaultRoster;
+state.classes = parseRoster(defaultRoster);
+</script>
+</body>
+</html>
